@@ -56,7 +56,7 @@ std::vector<char> do_gridsynth_call(double precision, const std::string& angle)
     std::vector<char> buffer(2048, '\0');
 
     HaskellRuntime::require_init();
-    const int result = gridsynth_angle_to_seq_with_precision_hs(precision, angle.c_str(), buffer.data(), buffer.size());
+    const int result = gridsynth_angle_to_seq_with_precision_hs(precision, (char*)angle.c_str(), buffer.data(), buffer.size());
     
     if(result != 0)
         throw std::logic_error{lstk::cat("Call to Gridsynth C Call returned ", result)};

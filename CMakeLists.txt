@@ -120,8 +120,8 @@ if(USE_GRIDSYNTH)
     
     
     target_link_options(lsqecclib INTERFACE
-            -L${GRIDSYNTH_LIBS_DIR} -lgridsynth_ccals -lHSnewsynth-0.4.0.0-inplace-ghc${GHC_VERSION}
-            -L${GHC_LIB_DIR}/x86_64-linux-ghc-${GHC_VERSION}/ -lHSrts-${HASKELL_RTS_VERSION}_debug-ghc${GHC_VERSION}
+            -L${GHC_LIB_DIR}/x86_64-linux-ghc-${GHC_VERSION}/
+            -L${GRIDSYNTH_LIBS_DIR} 
             -Wl,-rpath,${GRIDSYNTH_LIBS_DIR}
             -Wl,-rpath,${RTS_LIBS_DIR}
     )
@@ -139,6 +139,8 @@ if(NOT DEFINED CMAKE_CROSSCOMPILING_EMULATOR)
 
     target_link_libraries(
             lsqecc_slicer PUBLIC lsqecclib
+	    -lHSrts-${HASKELL_RTS_VERSION}_debug-ghc${GHC_VERSION}
+	    -lgridsynth_ccals -lHSnewsynth-0.4.0.0-inplace-ghc${GHC_VERSION}
     )
 
 endif()
@@ -206,6 +208,8 @@ if(NOT DEFINED CMAKE_CROSSCOMPILING_EMULATOR)
     target_link_libraries(
             lsqecc_tests
             lsqecclib
+	    -lHSrts-${HASKELL_RTS_VERSION}_debug-ghc${GHC_VERSION}
+	    -lgridsynth_ccals -lHSnewsynth-0.4.0.0-inplace-ghc${GHC_VERSION}
             gtest
             gtest_main
     )
