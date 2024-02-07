@@ -21,4 +21,4 @@
 	url = https://github.com/google/googletest
 [submodule "external/rotation-decomposer"]
 	path = external/rotation-decomposer
-	url = https://github.com/latticesurgery-com/rotation-decomposer.git
+	url = https://github.com/satvikmaurya/rotation-decomposer.git
