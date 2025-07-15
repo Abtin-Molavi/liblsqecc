@@ -5,7 +5,6 @@ using namespace nlohmann;
 
 namespace lsqecc {
 
-
 json init_blank_json_slice(const Slice& slice)
 {
     json out_rows = json::array();
@@ -45,6 +44,9 @@ json boundaries_to_array_edges_json(const CellBoundaries& cell_boundaries)
         case BoundaryType::Connected: return boundary.is_active ? "AncillaJoin": "None";
         case BoundaryType::Rough:return boundary.is_active ? "DashedStiched": "Dashed";
         case BoundaryType::Smooth: return boundary.is_active ? "SolidStiched": "Solid";
+        // case BoundaryType::Reserved: throw std::logic_error("BoundaryType::Reserved was not converted to activity in local compilation.");
+        case BoundaryType::Reserved_Label1: return boundary.is_active ? "SolidStiched": "None";
+        case BoundaryType::Reserved_Label2: return boundary.is_active ? "DashedStiched": "None";
         }
         LSTK_UNREACHABLE;
     };
@@ -61,6 +63,9 @@ json boundaries_to_array_edges_json(const CellBoundaries& cell_boundaries)
 json dense_patch_to_json(const DensePatch& p)
 {
     json visual_array_cell = boundaries_to_array_edges_json(p.boundaries);
+        if(p.operation_id)
+            visual_array_cell["operation_id"] = std::to_string(*p.operation_id);
+
     visual_array_cell["patch_type"] = [&](){
         switch (p.type)
         {
@@ -86,6 +91,8 @@ json dense_patch_to_json(const DensePatch& p)
                         case PatchActivity::Dead: return json();
                         case PatchActivity::MultiPatchMeasurement: return json();
                         case PatchActivity::Rotation: return json();
+                        case PatchActivity::EDPC: return json();
+                        case PatchActivity::Reserved: return json();
                         }
                         LSTK_UNREACHABLE;
                     }()
@@ -143,7 +150,8 @@ json slice_to_json(const SparseSlice& slice)
             json visual_array_cell = boundaries_to_array_edges_json(routing_cell);
             visual_array_cell["patch_type"] = "Ancilla";
             visual_array_cell["activity"] = json({});
-            // TODO could add sanity check on indices
+            if(routing_region.routing_region_id)
+                visual_array_cell["operation_id"] =  std::to_string(*routing_region.routing_region_id);
             out_slice[routing_cell.cell.row][routing_cell.cell.col] = visual_array_cell;
         }
     }

@@ -16,6 +16,7 @@ using ArbitraryPrecisionInteger = int64_t;
 struct Fraction{
     ArbitraryPrecisionInteger num;
     ArbitraryPrecisionInteger den;
+    bool is_negative = false;
 
     bool operator==(const Fraction& other) const = default;
 };
@@ -31,6 +32,7 @@ struct BasicSingleQubitGate{
     enum class Type : uint8_t
     {
         X = static_cast<uint8_t>(PauliOperator::X),
+        Y = static_cast<uint8_t>(PauliOperator::Y),
         Z = static_cast<uint8_t>(PauliOperator::Z),
         S,
         T,
@@ -67,7 +69,7 @@ std::optional<CNOTType> CNOTType_fromString(std::string_view s);
 
 enum class CNOTAncillaPlacement
 {
-    ANCILLA_FREE_PLACEMENT,
+    USE_DEDICATED_CELL,
     ANCILLA_NEXT_TO_CONTROL,
     ANCILLA_NEXT_TO_TARGET
 };
@@ -84,7 +86,10 @@ struct ControlledGate
     CNOTAncillaPlacement cnot_ancilla_placement;
 
     static constexpr CNOTType default_cnot_type = CNOTType::ZX_WITH_MBM_CONTROL_FIRST;
-    static constexpr CNOTAncillaPlacement default_ancilla_placement = CNOTAncillaPlacement::ANCILLA_FREE_PLACEMENT;
+    
+    // Initialized in source file. This value is updated depending on the type of layout.
+    // TODO consider using a more robust pattern if we have to support multiple layouts per lsqecc_slicer execution.
+    static CNOTAncillaPlacement default_ancilla_placement;
 };
 
 
@@ -102,6 +107,7 @@ inline constexpr BasicSingleQubitGate G(QubitNum target_qubit){\
 }
 
 MAKE_BASIC_GATE(X);
+MAKE_BASIC_GATE(Y);
 MAKE_BASIC_GATE(Z);
 MAKE_BASIC_GATE(S);
 MAKE_BASIC_GATE(T);
@@ -119,6 +125,15 @@ inline constexpr ControlledGate CNOT(
         CNOTAncillaPlacement cnot_ancilla_placement = CNOTAncillaPlacement::ANCILLA_NEXT_TO_CONTROL
 ){
     return {control_qubit, X(target_qubit), cnot_type, cnot_ancilla_placement};
+}
+
+inline constexpr ControlledGate CZ(
+        QubitNum target_qubit, 
+        QubitNum control_qubit,
+        CNOTType cnot_type = CNOTType::ZX_WITH_MBM_CONTROL_FIRST,
+        CNOTAncillaPlacement cnot_ancilla_placement = CNOTAncillaPlacement::ANCILLA_NEXT_TO_CONTROL
+){
+    return {control_qubit, Z(target_qubit), cnot_type, cnot_ancilla_placement};
 }
 
 inline constexpr ControlledGate CRZ(

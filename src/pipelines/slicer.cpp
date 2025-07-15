@@ -30,6 +30,8 @@
 #include <fstream>
 #include <chrono>
 
+#include <string>
+
 
 #define CONSOLE_HELP_NEWLINE_ALIGN "\n                           "
 
@@ -68,6 +70,18 @@ namespace lsqecc
     enum class CompilationMode
     {
         Local, Nonlocal
+    };
+
+    enum class AutoLayoutMode // Layouts specified with -L
+    {
+        Compact, CompactNoClogging, Edpc
+    };
+
+    using LayoutMode = std::variant<AutoLayoutMode, std::unique_ptr<LayoutFromSpec>>; // LayoutFromSpec is for -l
+
+    enum class SGateMode
+    {
+        Catalytic, Twists
     };
 
     DistillationOptions make_distillation_options(argparse::ArgumentParser& parser)
@@ -119,7 +133,7 @@ namespace lsqecc
                 .required(false);
         parser.add_argument()
                 .names({"-P", "--pipeline"})
-                .description("pipeline mode: stream (default), dag")
+                .description("pipeline mode: stream (default), wave, edpc, dag (deprecated)")
                 .required(false);
         parser.add_argument()
                 .names({"-g", "--graph-search"})
@@ -135,7 +149,7 @@ namespace lsqecc
                 .required(false);
         parser.add_argument()
                 .names({"--printdag"})
-                .description("Prints a dependancy dag of the circuit. Modes: input (default), processedlli")
+                .description("Prints a dependency dag of the circuit. Modes: input (default), processedlli")
                 .required(false);
         parser.add_argument()
                 .names({"--noslices"})
@@ -146,12 +160,16 @@ namespace lsqecc
                 .description("Add Xs and Zs to correct the the negative outcomes: never (default), always") // TODO add random
                 .required(false);
         parser.add_argument()
+                .names({"--op-ids"})
+                .description("Generates certain opearion ids. For now, it only adds ids to multi-body-measurement")
+                .required(false);
+        parser.add_argument()
                 .names({"--layoutgenerator","-L"})
                 .description(
                     "Automatically generates a layout for the given number of qubits. Incompatible with -l. Options:" CONSOLE_HELP_NEWLINE_ALIGN
                     " - compact (default): Uses Litinski's Game of Surace Code compact layout (https://arxiv.org/abs/1808.02892)" CONSOLE_HELP_NEWLINE_ALIGN
                     " - compact_no_clogging: same as compact, but fewer cells for ancillas and magic state queues" CONSOLE_HELP_NEWLINE_ALIGN
-                    " - edpc: Uses a layout specified in the EDPC paper by Beverland et. al. (https://arxiv.org/abs/2110.11493)"
+                    " - edpc: Uses a family of layouts based upon the one specified in the EDPC paper by Beverland et. al. (https://arxiv.org/abs/2110.11493)"
                 )
                 .required(false);
         parser.add_argument()
@@ -162,7 +180,11 @@ namespace lsqecc
                     .names({"--condensed"})
                     .description("Only compatible with -L edpc. Packs logical qubits more compactly.")
                     .required(false);
-                        
+        parser.add_argument()
+                    .names({"--explicitfactories"})
+                    .description("Only compatible with -L edpc. Explicitly specifies factories (otherwise, uses tiles reserved for magic state re-spawn).")
+                    .required(false);
+             
         #ifdef USE_GRIDSYNTH
         parser.add_argument()
                 .names({"--rzprecision"})
@@ -180,7 +202,11 @@ namespace lsqecc
                 .required(false);
         parser.add_argument()
                 .names({"--local"})
-                .description("Compile gates using a local lattice surgery instruction set")
+                .description("Compile gates into a pair-wise local lattice surgery instruction set")
+                .required(false);
+        parser.add_argument()
+                .names({"--notwists"})
+                .description("Compile S gates using the catalytic teleportation circuit from Fowler, 2012 instead of using the twist-based Y state initialization and teleportation from Gidney, 2024")
                 .required(false);
         parser.enable_help();
 
@@ -195,6 +221,34 @@ namespace lsqecc
         {
             parser.print_help();
             return 0;
+        }
+
+        DistillationOptions distillation_options = make_distillation_options(parser);
+
+        LayoutMode layout_mode = AutoLayoutMode::Compact;
+        if (parser.exists("layoutgenerator"))
+        {
+            if (parser.get<std::string>("layoutgenerator") == "compact")
+            {
+                layout_mode = AutoLayoutMode::Compact;
+            } else if (parser.get<std::string>("layoutgenerator") == "compact_no_clogging")
+            {
+                layout_mode = AutoLayoutMode::CompactNoClogging;
+            }
+            else if (parser.get<std::string>("layoutgenerator") == "edpc") 
+            {
+                layout_mode = AutoLayoutMode::Edpc;
+            }
+            else
+            {
+                err_stream << "Unknown layout generator: " << parser.get<std::string>("layoutgenerator") << std::endl;
+                return -1;
+            }
+        }
+        else if(parser.exists("l"))
+            layout_mode = std::make_unique<LayoutFromSpec>(file_to_string(parser.get<std::string>("l")), distillation_options);
+        else {
+            // Default to Litinsiki's compact layout
         }
 
         std::reference_wrapper<std::ostream> bulk_output_stream = std::ref(out_stream);
@@ -247,6 +301,7 @@ namespace lsqecc
         
 
         PipelineMode pipeline_mode = PipelineMode::Stream;
+        bool pipeline_mode_validity_checker = 1;
         if (parser.exists("pipeline"))
         {
             auto mode_arg = parser.get<std::string>("pipeline");
@@ -256,6 +311,11 @@ namespace lsqecc
                 pipeline_mode = PipelineMode::Dag;
             else if (mode_arg=="wave")
                 pipeline_mode = PipelineMode::Wave;
+            else if (mode_arg=="edpc")
+            {
+                pipeline_mode = PipelineMode::EDPC;
+                pipeline_mode_validity_checker = 0;
+            }
             else
             {
                 err_stream << "Unknown pipeline mode " << mode_arg << std::endl;
@@ -283,6 +343,10 @@ namespace lsqecc
         CompilationMode compile_mode = CompilationMode::Nonlocal;
         if (parser.exists("local"))
             compile_mode = CompilationMode::Local;
+
+        SGateMode sgate_mode = SGateMode::Twists;
+        if (parser.exists("notwists"))
+            sgate_mode = SGateMode::Catalytic;
 
         if(!parser.exists("q"))
         {
@@ -332,24 +396,34 @@ namespace lsqecc
 
 
         std::unique_ptr<Layout> layout;
-        DistillationOptions distillation_options = make_distillation_options(parser);
-        if (parser.exists("layoutgenerator"))
+        if (AutoLayoutMode* auto_layout_mode = std::get_if<AutoLayoutMode>(&layout_mode))
         {
-            if (parser.get<std::string>("layoutgenerator") == "compact")
+            if (*auto_layout_mode == AutoLayoutMode::Compact)
             {
+                if (sgate_mode == SGateMode::Catalytic) 
+                {
+                    err_stream << "Catalytic S Gates incompatible with layout: " << parser.get<std::string>("layoutgenerator") <<std::endl;
+                    return -1;
+                }
                 layout = make_compact_layout(instruction_stream->core_qubits().size(), distillation_options);
-                instruction_stream = std::make_unique<TeleportedSGateInjectionStream>(std::move(instruction_stream), id_generator);
                 instruction_stream = std::make_unique<BoundaryRotationInjectionStream>(std::move(instruction_stream), *layout);
-            } else if (parser.get<std::string>("layoutgenerator") == "compact_no_clogging")
+                instruction_stream = std::make_unique<TeleportedSGateInjectionStream>(std::move(instruction_stream), id_generator, false);
+            } else if (*auto_layout_mode == AutoLayoutMode::CompactNoClogging)
             {
+                if (sgate_mode == SGateMode::Catalytic) 
+                {
+                    err_stream << "Catalytic S Gates incompatible with layout: " << parser.get<std::string>("layoutgenerator") <<std::endl;
+                    return -1;
+                }
                 layout = make_compact_layout(instruction_stream->core_qubits().size(), distillation_options, true);
-                instruction_stream = std::make_unique<TeleportedSGateInjectionStream>(std::move(instruction_stream), id_generator);
                 instruction_stream = std::make_unique<BoundaryRotationInjectionStream>(std::move(instruction_stream), *layout);
+                instruction_stream = std::make_unique<TeleportedSGateInjectionStream>(std::move(instruction_stream), id_generator, false);
             }
-            else if (parser.get<std::string>("layoutgenerator") == "edpc") 
+            else if (*auto_layout_mode == AutoLayoutMode::Edpc) 
             {
                 size_t num_lanes = 1;
                 bool condensed = false;
+                bool factories_explicit = false;
                 
                 if(parser.exists("numlanes"))
                     num_lanes = parser.get<size_t>("numlanes");
@@ -357,24 +431,51 @@ namespace lsqecc
                 if(parser.exists("condensed"))
                     condensed = parser.get<bool>("condensed");
                 
-                layout = make_edpc_layout(instruction_stream->core_qubits().size(), num_lanes, condensed, distillation_options);
-                instruction_stream = std::make_unique<CatalyticSGateInjectionStream>(std::move(instruction_stream), id_generator, compile_mode == CompilationMode::Local);
+                if ((pipeline_mode == PipelineMode::EDPC) &&
+                    (compile_mode == CompilationMode::Local) &&
+                    (num_lanes == 1))
+                {
+                    pipeline_mode_validity_checker = 1;
+                }
+
+                if (parser.exists("explicitfactories")) 
+                    factories_explicit = true;
+
+                if (sgate_mode == SGateMode::Catalytic) 
+                {
+                    layout = make_edpc_layout(instruction_stream->core_qubits().size(), num_lanes, condensed, factories_explicit, true, distillation_options);
+                    instruction_stream = std::make_unique<CatalyticSGateInjectionStream>(std::move(instruction_stream), id_generator, compile_mode == CompilationMode::Local, true);
+                }
+
+                else if (sgate_mode == SGateMode::Twists) 
+                {
+                    layout = make_edpc_layout(instruction_stream->core_qubits().size(), num_lanes, condensed, factories_explicit, false, distillation_options);
+                    instruction_stream = std::make_unique<TeleportedSGateInjectionStream>(std::move(instruction_stream), id_generator, true);
+                }
             }
             else
             {
-                err_stream << "Unknown layout generator: " << parser.get<std::string>("layoutgenerator") << std::endl;
+                LSTK_NOT_IMPLEMENTED;
+            }
+        }
+        else if(std::unique_ptr<LayoutFromSpec>* custom_layout_path = std::get_if<std::unique_ptr<LayoutFromSpec>>(&layout_mode))
+        {
+            layout = std::move(*custom_layout_path);
+            if ((sgate_mode == SGateMode::Catalytic) && (layout->predistilled_y_states().size() == 0))
+            {
+                err_stream << "Catalytic S Gates require pre-distilled Y states to be specified by 'Y' in layout ASCII." << std::endl;
                 return -1;
             }
         }
-        else if(parser.exists("l"))
-            layout = std::make_unique<LayoutFromSpec>(file_to_string(parser.get<std::string>("l")), distillation_options);
-        else
+
+        // Override the choice of ancilla placements when no location is provided
+        if(layout->ancilla_location().empty())
         {
-            // Default to Litinsiki's compact layout
-            layout = make_compact_layout(instruction_stream->core_qubits().size(), distillation_options);
-            instruction_stream = std::make_unique<TeleportedSGateInjectionStream>(std::move(instruction_stream), id_generator);
-            instruction_stream = std::make_unique<BoundaryRotationInjectionStream>(std::move(instruction_stream), *layout);
+            gates::ControlledGate::default_ancilla_placement = gates::CNOTAncillaPlacement::ANCILLA_NEXT_TO_TARGET;
         }
+
+        if (!pipeline_mode_validity_checker)
+            throw std::runtime_error("PipelineMode::EDPC only valid when paired with (default or 1-lane condensed) EDPC layout and CompilationMode::Local.");
 
         LLIPrintMode lli_print_mode = LLIPrintMode::None;
         if(parser.exists("printlli"))
@@ -507,12 +608,14 @@ namespace lsqecc
                     std::move(*instruction_stream),
                     pipeline_mode,
                     compile_mode == CompilationMode::Local,
+                    sgate_mode == SGateMode::Twists,
                     *layout,
-                    *router,
+                    std::move(router),
                     timeout,
                     slice_visitor,
                     instruction_visitor,
-                    parser.exists("graceful")
+                    parser.exists("graceful"),
+                    parser.exists("op-ids")
         ));
 
         if(parser.exists("o") || parser.exists("noslices"))

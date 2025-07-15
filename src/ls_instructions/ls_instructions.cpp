@@ -90,7 +90,17 @@ std::ostream& operator<<(std::ostream& os, const MultiPatchMeasurement& instruct
     std::vector<std::string> op_patch_mapping;
     for(const auto& [patch_id, local_observable] : instruction.observable)
         op_patch_mapping.push_back(lstk::cat(patch_id, ":", PauliOperator_to_string(local_observable)));
-    return os << lstk::join(op_patch_mapping,",");
+    os << lstk::join(op_patch_mapping,",");
+
+    if (instruction.local_instruction.has_value())
+    {
+        os << " [";
+        os << instruction.local_instruction.value();
+        os << "]";
+
+    }
+
+    return os;
 }
 
 std::ostream& operator<<(std::ostream& os, const PlaceNexTo& place_next_to)
@@ -140,8 +150,19 @@ std::ostream& operator<<(std::ostream& os, const MagicStateRequest& instruction)
 
 std::ostream& operator<<(std::ostream& os, const YStateRequest& instruction)
 {
-    return os << LSInstructionPrint<YStateRequest>::name
+    os << LSInstructionPrint<YStateRequest>::name
         << " " << instruction.target << " " << instruction.near_patch;
+
+    if (instruction.local_instruction.has_value())
+    {
+        os << " [";
+        os << instruction.local_instruction.value();
+        os << "]";
+
+    }
+
+    return os;
+    
 }
 
 std::ostream& operator<<(std::ostream& os, const SingleQubitOp& instruction)
@@ -168,17 +189,19 @@ std::ostream& operator<<(std::ostream& os, const BellBasedCNOT& instruction)
     os << LSInstructionPrint<BellBasedCNOT>::name
         << " " << instruction.control << " " << instruction.target << " " << instruction.side1 << " " << instruction.side2;
 
-    if (instruction.counter.has_value() && instruction.local_instructions.has_value()) 
+    if (instruction.counter_pairs.has_value() && instruction.local_instruction_sets.has_value()) 
     {
         os << " [";
-        for (unsigned int i = instruction.counter->first; i < instruction.counter->second; i++) 
+        for (size_t phase=0; phase<instruction.local_instruction_sets.value().size(); phase++)
         {
-            os << instruction.local_instructions.value()[i];
-            if (i != instruction.counter->second - 1) 
-                os << ";";
+            for (unsigned int i = instruction.counter_pairs.value()[phase].first; i < instruction.counter_pairs.value()[phase].second; i++) 
+            {
+                os << instruction.local_instruction_sets.value()[phase][i];
+                if (i != instruction.counter_pairs.value()[phase].second - 1) 
+                    os << ";";
+            }
         }
         os << "]";
-
     }
 
     return os;

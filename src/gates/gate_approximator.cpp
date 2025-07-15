@@ -5,6 +5,8 @@
 
 bool is_power_of_two(lsqecc::ArbitraryPrecisionInteger n)
 {
+    if(n==1)
+        return true;
     return (n & (n - 1)) == 0 && n != 0;
 }
 
@@ -82,7 +84,11 @@ std::vector<Gate> approximate_RZ_gate_gridsynth(const RZ rz_gate, double rz_prec
 {
     std::vector<Gate> out;
 
-    std::string angle{lstk::cat("1*pi/16")};
+    Fraction pi_fraction = rz_gate.pi_fraction;
+    std::string angle = (pi_fraction.is_negative? "-":"+")
+                        + std::to_string(pi_fraction.num) 
+                        + "*pi/" 
+                        + std::to_string(pi_fraction.den);
     std::vector<char> gate_names{do_gridsynth_call(rz_precision_log_ten_negative, angle)};
     for (auto gate_name = gate_names.begin(); gate_name != gate_names.end(); gate_name++)
     {
@@ -117,7 +123,7 @@ std::vector<Gate> approximate_RZ_gate_cached(const RZ rz_gate)
     if ((rz_gate.pi_fraction.num == 1 || rz_gate.pi_fraction.num == -1) && is_power_of_two(rz_gate.pi_fraction.den))
     {
         // TODO Do the approximation
-        LSTK_NOT_IMPLEMENTED;
+        throw std::runtime_error{lstk::cat("Not implemented! No cached decompositions. We are working on this...")};
     }
     throw std::runtime_error{lstk::cat("Can only approximate pi/2^n phase gates in cached mode, got rz(", print_pi_fraction(rz_gate.pi_fraction),")\n"
                                        "If you really need non pi/2^n gates consider enabling the gridsynth integration"

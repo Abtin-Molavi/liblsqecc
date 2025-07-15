@@ -18,10 +18,24 @@ enum class BoundaryType : uint8_t {
     Connected, // Used for multi patch
     Rough,
     Smooth,
+    Reserved_Label1, // Used by EDPC to denote the two VDP path sets of one EDP set
+    Reserved_Label2,
 };
 
+enum class CellDirection {
+    top, bottom, left, right
+};
+
+CellDirection operator!(CellDirection dir);
+
+BoundaryType operator!(BoundaryType bt);
+
+std::ostream& operator<<(std::ostream& os, BoundaryType bt);
 
 BoundaryType boundary_for_operator(PauliOperator op);
+
+
+using OpId = uint64_t;
 
 struct Cell {
     using CoordinateType = int32_t;
@@ -30,6 +44,7 @@ struct Cell {
 
     std::vector<Cell> get_neigbours() const;
     std::vector<Cell> get_neigbours_within_bounding_box_inclusive(const Cell& origin, const Cell& furthest_cell) const;
+    std::optional<Cell> get_directional_neighbor(const Cell& origin, const Cell& furthest_cell, CellDirection dir) const;
 
     template<class IntType>
     static Cell from_ints(IntType _row, IntType _col)
@@ -63,7 +78,9 @@ enum class PatchActivity : uint8_t
     Distillation,
     Dead,
     MultiPatchMeasurement,
-    Rotation
+    Rotation,
+    EDPC,
+    Reserved
 };
 
 
@@ -89,11 +106,13 @@ struct CellBoundaries {
     void instant_rotate();
 };
 
+
 struct SingleCellOccupiedByPatch : public CellBoundaries {
 
     Cell cell;
 
     std::optional<Boundary> get_boundary_with(const Cell& neighbour) const;
+    std::optional<Boundary*> get_boundary_reference_with(const Cell& neighbour);
     bool have_boundary_of_type_with(PauliOperator op, const Cell& neighbour) const;
     std::optional<std::reference_wrapper<Boundary>> get_mut_boundary_with(const Cell& neighbour);
 
@@ -114,8 +133,7 @@ struct Patch {
     PatchActivity activity;
     std::optional<PatchId> id;
     std::optional<std::string> label;
-    
-    // Patch& operator=(const Patch& other)
+    std::optional<OpId> operation_id;
 
     bool operator==(const Patch&) const = default;
 };
@@ -137,7 +155,6 @@ struct SparsePatch : public Patch {
 
 
 struct DensePatch : public Patch {
-
     CellBoundaries boundaries;
 
     SparsePatch to_sparse_patch(const Cell& c) const;
@@ -150,6 +167,8 @@ struct DensePatch : public Patch {
 struct RoutingRegion
 {
     std::vector<SingleCellOccupiedByPatch> cells;
+    std::optional<OpId> routing_region_id;
+
     bool operator==(const RoutingRegion&) const = default;
 };
 
