@@ -242,17 +242,19 @@ std::unique_ptr<Layout> make_edpc_layout(size_t num_core_qubits, size_t num_lane
         }
     }
 
-#ifdef DEBUG_EDPC_LAYOUT_CREATION
+// #ifdef DEBUG_EDPC_LAYOUT_CREATION
     // Print out the grid for the purposes of debugging
-    std::cerr << "The number of rows in the grid is: " << grid.size() << std::endl;
-    std::cerr << "The number of columns in the grid is: " << grid[grid.size()-1].size() << std::endl;
+    std::cerr << "[LSC OUTPUT] :::::: " << "The number of rows in the grid is: " << grid.size() << std::endl;
+    std::cerr << "[LSC OUTPUT] :::::: " << "The number of columns in the grid is: " << grid[grid.size()-1].size() << std::endl;
     for (size_t i=0; i<grid.size(); i++) {
+        std::cerr << "[LSC OUTPUT] :::::: ";
         for (size_t j=0; j<grid[i].size(); j++) {
             std::cerr << grid[i][j];
         }
         std::cerr << std::endl;
     }
-#endif
+    std::cerr << "[LSC OUTPUT] :::::: " << "The number of logical qubits placed is: " << logical_placed << std::endl;
+// #endif
 
     return std::make_unique<LayoutFromSpec>(grid, distillation_options);
 }

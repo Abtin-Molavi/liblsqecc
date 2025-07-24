@@ -2,6 +2,7 @@
 #include <lsqecc/patches/patches.hpp>
 
 #include <sstream>
+#include <iostream>
 
 namespace lsqecc
 {
@@ -124,7 +125,14 @@ DenseSlice::DenseSlice(const lsqecc::Layout &layout, const tsl::ordered_set<Patc
     {
         if(core_qubit_ids_itr == core_qubit_ids.end()) break;
         Cell cell = place_single_cell_sparse_patch(p,false);
-        patch_at(cell)->id = *core_qubit_ids_itr++;
+        patch_at(cell)->id = *core_qubit_ids_itr;
+        
+        // Print core qubit mapping
+        std::cout << "Core qubit mapping: Qubit ID " << *core_qubit_ids_itr 
+                  << " -> Physical location (" << cell.row << "," << cell.col << ")" 
+                  << std::endl;
+        
+        ++core_qubit_ids_itr;
     }
 
     for (const Cell& cell: layout.predistilled_y_states())

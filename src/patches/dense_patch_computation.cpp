@@ -4,7 +4,8 @@
 
 #include <algorithm>
 #include <sstream>
-#include <iterator> 
+#include <iterator>
+#include <iostream> 
 
 namespace lsqecc
 {
@@ -136,7 +137,10 @@ void advance_slice(DenseSlice& slice, const Layout& layout)
                     SparsePatch magic_state_patch = LayoutHelpers::basic_square_patch(cell, std::nullopt, "Magic State");
                     magic_state_patch.type = PatchType::PreparedState;
                     slice.place_single_cell_sparse_patch(magic_state_patch, true);
-                    slice.magic_states.insert(cell); 
+                    slice.magic_states.insert(cell);
+                    
+                    // Print magic state creation at physical location
+                    std::cout << "Magic state spawned at physical location (" << cell.row << "," << cell.col << ") in reserved site #" << reserved_cell_index << std::endl;
                 }
             }
             reserved_cell_index++;
@@ -160,6 +164,9 @@ void advance_slice(DenseSlice& slice, const Layout& layout)
                     magic_state_patch.type = PatchType::PreparedState;
                     slice.place_single_cell_sparse_patch(magic_state_patch, true);
                     slice.magic_states.insert(*magic_state_cell);
+                    
+                    // Print magic state creation at physical location
+                    std::cout << "Magic state spawned at physical location (" << magic_state_cell->row << "," << magic_state_cell->col << ") in distillation region #" << distillation_region_index << std::endl;
                 }
                 time_to_magic_state_here = layout.distillation_times()[distillation_region_index];
             }
@@ -355,6 +362,13 @@ InstructionApplicationResult try_apply_local_instruction(
 
         // PatchActivity::Unitary may or may not be appropriate here
         slice.patch_at(prepy->target_cell).value().activity = PatchActivity::Unitary;
+
+        // Print Y state preparation
+        if (prepy->target_id.has_value()) {
+            std::cout << "Y state prepared: Patch ID " << prepy->target_id.value() 
+                      << " -> Physical location (" << prepy->target_cell.row << "," << prepy->target_cell.col << ")" 
+                      << std::endl;
+        }
 
         return {nullptr, {}};
     }
@@ -812,6 +826,34 @@ InstructionApplicationResult try_apply_instruction_direct_followup(
         if (!slice.has_patch(target_id))
             return {std::make_unique<std::runtime_error>(lstk::cat(instruction,"; Patch ", target_id, " not on lattice")), {}};
 
+        // Print MultiBodyMeasure with physical locations and detect magic states
+        auto source_cell = slice.get_cell_by_id(source_id).value();
+        auto target_cell = slice.get_cell_by_id(target_id).value();
+        auto source_patch = slice.patch_at(source_cell).value();
+        auto target_patch = slice.patch_at(target_cell).value();
+        
+        auto pauli_to_string = [](const PauliOperator& op) -> std::string {
+            switch(op) {
+                case PauliOperator::X: return "X";
+                case PauliOperator::Y: return "Y"; 
+                case PauliOperator::Z: return "Z";
+                case PauliOperator::I: return "I";
+                default: return "Unknown";
+            }
+        };
+
+        std::cout << "MultiBodyMeasure: Patch " << source_id << ":" << pauli_to_string(source_op)
+                << " at (" << source_cell.row << "," << source_cell.col << ")";
+        if (source_patch.type == PatchType::PreparedState) {
+            std::cout << " [MAGIC STATE]";
+        }
+        std::cout << " + Patch " << target_id << ":" << pauli_to_string(target_op)
+                << " at (" << target_cell.row << "," << target_cell.col << ")";
+        if (target_patch.type == PatchType::PreparedState) {
+            std::cout << " [MAGIC STATE]";
+        }
+        std::cout << std::endl;
+
         if (!local_instructions) 
         {
             if (router.get_EDPC())
@@ -864,6 +906,12 @@ InstructionApplicationResult try_apply_instruction_direct_followup(
         slice.patch_at(*location);
         slice.place_single_cell_sparse_patch(LayoutHelpers::basic_square_patch(*location, std::nullopt, "Init"), false);
         slice.patch_at(*location)->id = init->target;
+
+        // Print ancilla allocation
+        std::cout << "Ancilla allocated: Patch ID " << init->target 
+                  << " -> Physical location (" << location->row << "," << location->col << ")" 
+                  << (init->place_next_to ? " (placed next to patch " + std::to_string(init->place_next_to->target) + ")" : " (free location)") 
+                  << std::endl;
 
         return {nullptr, {}};
     }
@@ -1305,6 +1353,12 @@ InstructionApplicationResult try_apply_instruction_direct_followup(
             newly_bound_magic_state.id = mr->target;
             newly_bound_magic_state.type = PatchType::Qubit;
             newly_bound_magic_state.activity = PatchActivity::None;
+            
+            // Print magic state allocation to patch ID
+            std::cout << "Magic state allocated: Patch ID " << mr->target 
+                      << " -> Physical location (" << min_cell.value().row 
+                      << "," << min_cell.value().col << ")" << std::endl;
+            
             slice.magic_states.erase(min_cell.value());
             return {nullptr, {}};
         }
@@ -1358,6 +1412,12 @@ InstructionApplicationResult try_apply_instruction_direct_followup(
                     {
                         slice.patch_at(min_cell.value()).value().id = yr->target;
                         slice.predistilled_ystates_available--;
+                        
+                        // Print Y state allocation from pre-distilled
+                        std::cout << "Y state allocated (pre-distilled): Patch ID " << yr->target 
+                                  << " -> Physical location (" << min_cell.value().row << "," << min_cell.value().col << ")" 
+                                  << std::endl;
+                        
                         return {nullptr, {}};
                     }
                 }
