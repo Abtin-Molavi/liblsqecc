@@ -275,7 +275,6 @@ std::optional<RoutingRegion> do_graph_search_route_ancilla(
 
 #if false
 
-    std::cout<< source_vertex << " to " << target_vertex<<std::endl;
 
     for (size_t i = 0; i<predecessor_map.size(); ++i)
         std::cout << i << "->" << predecessor_map[i].predecessor

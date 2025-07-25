@@ -100,7 +100,7 @@ std::optional<RoutingRegion> graph_search_route_ancilla(
     Vertex s = vertex(make_vertex(*slice.get_cell_by_id(source)), g);
     dijkstra_shortest_paths(g, s, predecessor_map(p));
 
-#if false
+#if true
     std::ofstream dotfile ("graph");
     write_graphviz(dotfile, g);
     std::cout<<"S:"<<make_vertex(slice.get_patch_by_id(source).get_cells()[0])<<" "
